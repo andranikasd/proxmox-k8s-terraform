@@ -50,6 +50,99 @@ variable "ssh_private_key_path" {
   default     = "~/.ssh/id_rsa"
 }
 
+# Flux GitOps Configuration
+variable "enable_flux" {
+  description = "Enable Flux GitOps deployment"
+  type        = bool
+  default     = false
+}
+
+variable "flux_github_repository" {
+  description = "GitHub repository for Flux GitOps (format: owner/repo)"
+  type        = string
+  default     = ""
+}
+
+variable "flux_github_branch" {
+  description = "GitHub branch for Flux GitOps"
+  type        = string
+  default     = "main"
+}
+
+variable "flux_github_path" {
+  description = "Path within the repository for Flux to watch"
+  type        = string
+  default     = "./clusters/production"
+}
+
+variable "flux_github_token" {
+  description = "GitHub personal access token for Flux"
+  type        = string
+  sensitive   = true
+  default     = ""
+}
+
+variable "flux_namespace" {
+  description = "Kubernetes namespace for Flux"
+  type        = string
+  default     = "flux-system"
+}
+
+variable "flux_version" {
+  description = "Flux version to install"
+  type        = string
+  default     = "2.0.1"
+}
+
+# Load Balancer and Networking Configuration
+variable "enable_metallb" {
+  description = "Enable MetalLB load balancer"
+  type        = bool
+  default     = false
+}
+
+variable "metallb_ip_range" {
+  description = "IP range for MetalLB load balancer (e.g., '192.168.1.100-192.168.1.110')"
+  type        = string
+  default     = ""
+}
+
+variable "enable_kubevip" {
+  description = "Enable KubeVIP for API server load balancing"
+  type        = bool
+  default     = false
+}
+
+variable "kubevip_version" {
+  description = "KubeVIP version to install"
+  type        = string
+  default     = "0.6.4"
+}
+
+variable "api_server_vip" {
+  description = "Virtual IP for Kubernetes API server"
+  type        = string
+  default     = ""
+}
+
+variable "enable_ingress_nginx" {
+  description = "Enable NGINX Ingress Controller"
+  type        = bool
+  default     = false
+}
+
+variable "ingress_nginx_version" {
+  description = "NGINX Ingress Controller version"
+  type        = string
+  default     = "1.8.2"
+}
+
+variable "public_ip" {
+  description = "Public IP address of the OVH server for load balancer services"
+  type        = string
+  default     = ""
+}
+
 # Kubernetes Cluster Configuration
 variable "cluster_name" {
   description = "Name of the Kubernetes cluster"

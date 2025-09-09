@@ -10,14 +10,20 @@ Terraform module that deploys a Kubernetes cluster on Proxmox using Chef for con
 - **Container Runtime Options**: Supports both containerd and Docker
 - **Network Configuration**: Configurable pod and service CIDR ranges
 - **Resource Management**: Configurable CPU, memory, and disk resources
+- **Flux GitOps Integration**: Optional Flux deployment with GitHub repository connection
+- **Load Balancer Support**: MetalLB and KubeVIP for exposing services with public IPs
+- **Ingress Controller**: NGINX Ingress Controller for HTTP/HTTPS routing
 
 ## Architecture
 
 This module creates:
 - **Master Nodes**: Kubernetes control plane nodes
 - **Worker Nodes**: Kubernetes worker nodes
-- **Chef Integration**: Automated configuration management
+- **Cloud-init Configuration**: Automated VM setup and Kubernetes installation
 - **Network Setup**: CNI plugin installation and configuration
+- **Flux GitOps**: Optional GitOps deployment with GitHub integration
+- **Load Balancers**: MetalLB for LoadBalancer services, KubeVIP for API server
+- **Ingress**: NGINX Ingress Controller for external access
 
 ## Prerequisites
 
@@ -27,10 +33,10 @@ This module creates:
 3. VM template (Ubuntu 20.04+ recommended)
 4. Network bridge configured
 
-### Chef Setup
-1. Chef server with API access
-2. Chef client with appropriate permissions
-3. Kubernetes cookbook uploaded to Chef server
+### Flux GitOps Setup (Optional)
+1. GitHub repository for GitOps configuration
+2. GitHub personal access token with repository permissions
+3. Repository structure with cluster configuration path
 
 ## Usage
 
@@ -48,10 +54,8 @@ module "kubernetes_cluster" {
   proxmox_datastore    = "local-lvm"
   proxmox_template     = "ubuntu-22.04-cloud"
 
-  # Chef Configuration
-  chef_server_url  = "https://your-chef-server/organizations/your-org"
-  chef_client_name = "terraform-client"
-  chef_private_key = file("~/.chef/terraform-client.pem")
+  # SSH Configuration
+  ssh_private_key_path = "~/.ssh/id_rsa"
 
   # Kubernetes Configuration
   cluster_name       = "my-k8s-cluster"
@@ -60,6 +64,82 @@ module "kubernetes_cluster" {
   worker_count       = 2
   pod_cidr          = "10.244.0.0/16"
   service_cidr      = "10.96.0.0/12"
+
+  # VM Access
+  ssh_public_key = file("~/.ssh/id_rsa.pub")
+}
+```
+
+### With Flux GitOps
+
+```hcl
+module "kubernetes_cluster" {
+  source = "path/to/proxmox-k8s-terraform"
+
+  # Proxmox Configuration
+  proxmox_api_url      = "https://your-proxmox:8006/api2/json"
+  proxmox_token_id     = "terraform@pve!terraform-token"
+  proxmox_token_secret = "your-token-secret"
+  proxmox_node_name    = "pve"
+  proxmox_datastore    = "local-lvm"
+  proxmox_template     = "ubuntu-22.04-cloud"
+
+  # SSH Configuration
+  ssh_private_key_path = "~/.ssh/id_rsa"
+
+  # Kubernetes Configuration
+  cluster_name       = "my-k8s-cluster"
+  kubernetes_version = "1.28.0"
+  master_count       = 1
+  worker_count       = 2
+  pod_cidr          = "10.244.0.0/16"
+  service_cidr      = "10.96.0.0/12"
+
+  # Flux GitOps Configuration
+  enable_flux = true
+  flux_github_repository = "your-username/your-gitops-repo"
+  flux_github_branch = "main"
+  flux_github_path = "./clusters/production"
+  flux_github_token = "your-github-token"
+  flux_version = "2.0.1"
+
+  # VM Access
+  ssh_public_key = file("~/.ssh/id_rsa.pub")
+}
+```
+
+### With Load Balancers and Ingress
+
+```hcl
+module "kubernetes_cluster" {
+  source = "path/to/proxmox-k8s-terraform"
+
+  # Proxmox Configuration
+  proxmox_api_url      = "https://your-proxmox:8006/api2/json"
+  proxmox_token_id     = "terraform@pve!terraform-token"
+  proxmox_token_secret = "your-token-secret"
+  proxmox_node_name    = "pve"
+  proxmox_datastore    = "local-lvm"
+  proxmox_template     = "ubuntu-22.04-cloud"
+
+  # SSH Configuration
+  ssh_private_key_path = "~/.ssh/id_rsa"
+
+  # Kubernetes Configuration
+  cluster_name       = "my-k8s-cluster"
+  kubernetes_version = "1.28.0"
+  master_count       = 1
+  worker_count       = 2
+  pod_cidr          = "10.244.0.0/16"
+  service_cidr      = "10.96.0.0/12"
+
+  # Load Balancer and Networking Configuration
+  enable_metallb = true
+  metallb_ip_range = "192.168.1.100-192.168.1.110"
+  enable_kubevip = true
+  api_server_vip = "192.168.1.100"
+  enable_ingress_nginx = true
+  public_ip = "YOUR_PUBLIC_IP"
 
   # VM Access
   ssh_public_key = file("~/.ssh/id_rsa.pub")
@@ -132,13 +212,33 @@ module "kubernetes_cluster" {
 | proxmox_template | Proxmox template | `string` | n/a | yes |
 | proxmox_bridge | Proxmox bridge | `string` | `"vmbr0"` | no |
 
-### Chef Configuration
+### SSH Configuration
 | Name | Description | Type | Default | Required |
 |------|-------------|------|---------|:--------:|
-| chef_server_url | Chef server URL | `string` | n/a | yes |
-| chef_client_name | Chef client name | `string` | n/a | yes |
-| chef_private_key | Chef private key | `string` | n/a | yes |
-| chef_environment | Chef environment | `string` | `"_default"` | no |
+| ssh_private_key_path | Path to SSH private key | `string` | `"~/.ssh/id_rsa"` | no |
+
+### Flux GitOps Configuration
+| Name | Description | Type | Default | Required |
+|------|-------------|------|---------|:--------:|
+| enable_flux | Enable Flux GitOps deployment | `bool` | `false` | no |
+| flux_github_repository | GitHub repository (owner/repo) | `string` | `""` | no |
+| flux_github_branch | GitHub branch | `string` | `"main"` | no |
+| flux_github_path | Repository path to watch | `string` | `"./clusters/production"` | no |
+| flux_github_token | GitHub personal access token | `string` | `""` | no |
+| flux_namespace | Kubernetes namespace for Flux | `string` | `"flux-system"` | no |
+| flux_version | Flux version to install | `string` | `"2.0.1"` | no |
+
+### Load Balancer and Networking Configuration
+| Name | Description | Type | Default | Required |
+|------|-------------|------|---------|:--------:|
+| enable_metallb | Enable MetalLB load balancer | `bool` | `false` | no |
+| metallb_ip_range | IP range for MetalLB | `string` | `""` | no |
+| enable_kubevip | Enable KubeVIP for API server | `bool` | `false` | no |
+| kubevip_version | KubeVIP version | `string` | `"0.6.4"` | no |
+| api_server_vip | Virtual IP for API server | `string` | `""` | no |
+| enable_ingress_nginx | Enable NGINX Ingress Controller | `bool` | `false` | no |
+| ingress_nginx_version | NGINX Ingress version | `string` | `"1.8.2"` | no |
+| public_ip | Public IP for load balancer services | `string` | `""` | no |
 
 ### Kubernetes Configuration
 | Name | Description | Type | Default | Required |
@@ -181,31 +281,36 @@ module "kubernetes_cluster" {
 | service_cidr | CIDR block for service networks |
 | cluster_dns | Cluster DNS IP address |
 | connection_info | Information for connecting to the cluster |
+| flux_enabled | Whether Flux GitOps is enabled |
+| flux_github_repository | GitHub repository configured for Flux |
+| flux_github_branch | GitHub branch configured for Flux |
+| flux_github_path | GitHub path configured for Flux |
+| flux_namespace | Kubernetes namespace for Flux |
+| flux_version | Flux version installed |
+| kubeconfig_path | Path to the local kubeconfig file |
+| kubeconfig_usage | Instructions for using the kubeconfig |
+| master_node_ip | IP address of the first master node |
+| metallb_enabled | Whether MetalLB is enabled |
+| metallb_ip_range | IP range configured for MetalLB |
+| kubevip_enabled | Whether KubeVIP is enabled |
+| api_server_vip | Virtual IP for Kubernetes API server |
+| ingress_nginx_enabled | Whether NGINX Ingress Controller is enabled |
+| public_ip | Public IP address for load balancer services |
+| networking_info | Networking configuration summary |
 
-## Chef Cookbooks
+## Cloud-init Configuration
 
-This module includes Chef cookbooks for:
-- **Common setup**: System configuration, package installation
+This module uses cloud-init for automated VM setup:
+- **System configuration**: Package installation, kernel modules, sysctl settings
 - **Container runtime**: containerd or Docker installation
 - **Kubernetes packages**: kubelet, kubeadm, kubectl installation
-- **Master configuration**: Control plane setup
-- **Worker configuration**: Worker node setup
+- **Flux CLI**: Optional Flux CLI installation for GitOps
+- **Network setup**: CNI plugins and Flannel configuration
 
-### Cookbook Structure
+### Template Structure
 ```
-cookbooks/kubernetes/
-├── metadata.rb
-├── attributes/
-│   └── default.rb
-├── recipes/
-│   ├── default.rb
-│   ├── common.rb
-│   ├── packages.rb
-│   ├── containerd.rb
-│   ├── master.rb
-│   └── worker.rb
-└── templates/
-    └── containerd-config.toml.erb
+templates/
+└── cloud-init.yaml
 ```
 
 ## Getting Started
@@ -220,9 +325,10 @@ cookbooks/kubernetes/
    - Create a token in Proxmox web interface
    - Note the token ID and secret
 
-3. **Set up Chef server**:
-   - Upload the Kubernetes cookbook to your Chef server
-   - Create a Chef client for Terraform
+3. **Set up Flux GitOps (optional)**:
+   - Create a GitHub repository for GitOps configuration
+   - Generate a GitHub personal access token
+   - Set up repository structure with cluster configuration
 
 4. **Configure variables**:
    ```bash
@@ -239,14 +345,18 @@ cookbooks/kubernetes/
 
 6. **Access the cluster**:
    ```bash
-   # SSH to master node
+   # The kubeconfig is automatically extracted and saved locally
+   # Check the Terraform outputs for the kubeconfig path
+   terraform output kubeconfig_path
+   terraform output kubeconfig_usage
+   
+   # Use the kubeconfig
+   export KUBECONFIG=./kubeconfig/kubeconfig-<cluster-name>
+   kubectl get nodes
+   kubectl get pods --all-namespaces
+   
+   # Alternative: SSH to master node
    ssh ubuntu@<master-node-ip>
-   
-   # Copy kubeconfig
-   sudo cp /etc/kubernetes/admin.conf ~/.kube/config
-   sudo chown ubuntu:ubuntu ~/.kube/config
-   
-   # Verify cluster
    kubectl get nodes
    ```
 
@@ -255,14 +365,14 @@ cookbooks/kubernetes/
 ### Common Issues
 
 1. **VM creation fails**: Check Proxmox API permissions and resource availability
-2. **Chef node registration fails**: Verify Chef server connectivity and credentials
+2. **Flux installation fails**: Verify GitHub token permissions and repository access
 3. **Kubernetes initialization fails**: Check network connectivity and resource constraints
 4. **CNI plugin issues**: Verify pod CIDR configuration and network setup
 
 ### Logs
 
 - **Terraform logs**: Use `TF_LOG=DEBUG terraform apply`
-- **Chef logs**: Check `/var/log/chef/client.log` on VMs
+- **Cloud-init logs**: Check `/var/log/cloud-init-output.log` on VMs
 - **Kubernetes logs**: Check `/var/log/kubernetes/` on master nodes
 
 ## Contributing
@@ -282,4 +392,4 @@ This project is licensed under the Apache License 2.0 - see the [LICENSE](LICENS
 For issues and questions:
 - Create an issue in the repository
 - Check the troubleshooting section
-- Review the Chef cookbook documentation
+- Review the Flux documentation

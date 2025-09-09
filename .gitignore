@@ -30,3 +30,6 @@ Thumbs.db
 # Temporary files
 *.tmp
 *.temp
+
+# OVH server configuration (personal deployment)
+ovh-server/

@@ -27,6 +27,10 @@ locals {
     pod_cidr = var.pod_cidr
     service_cidr = var.service_cidr
     cluster_dns = var.cluster_dns
+    enable_flux = var.enable_flux
+    flux_version = var.flux_version
+    enable_kubevip = var.enable_kubevip
+    kubevip_version = var.kubevip_version
   })
 }
 
@@ -175,15 +179,26 @@ resource "time_sleep" "wait_for_vms" {
   create_duration = "60s"
 }
 
-# Get master node IP addresses
+# Get master node IP addresses from Proxmox
 data "external" "master_ips" {
   count = var.master_count
   depends_on = [time_sleep.wait_for_vms]
   
   program = ["bash", "-c", <<-EOT
-    # Get the IP address of the master node
-    # This is a simplified approach - in production you might want to use a more robust method
-    echo '{"ip": "192.168.1.100"}'
+    # Get the IP address of the master node from Proxmox
+    VM_ID=${proxmox_virtual_environment_vm.master_nodes[count.index].vm_id}
+    NODE_NAME="${var.proxmox_node_name}"
+    
+    # Use Proxmox API to get VM IP
+    IP=$(curl -s -k -H "Authorization: PVEAPIToken=${var.proxmox_token_id}=${var.proxmox_token_secret}" \
+      "${var.proxmox_api_url}/nodes/$NODE_NAME/qemu/$VM_ID/agent/network-get-interfaces" | \
+      jq -r '.data.result[] | select(.name=="eth0") | .["ip-addresses"][] | select(.["ip-address-type"]=="ipv4") | .["ip-address"]' | head -1)
+    
+    if [ -z "$IP" ]; then
+      echo '{"ip": "unknown"}'
+    else
+      echo "{\"ip\": \"$IP\"}"
+    fi
   EOT
   ]
 }
@@ -207,7 +222,111 @@ resource "null_resource" "kubeadm_init" {
       "mkdir -p $HOME/.kube",
       "sudo cp -i /etc/kubernetes/admin.conf $HOME/.kube/config",
       "sudo chown $(id -u):$(id -g) $HOME/.kube/config",
-      "kubectl apply -f https://raw.githubusercontent.com/flannel-io/flannel/master/Documentation/kube-flannel.yml"
+      "kubectl apply -f https://raw.githubusercontent.com/flannel-io/flannel/master/Documentation/kube-flannel.yml",
+      # Install Flux if enabled
+      var.enable_flux ? "flux install --version=${var.flux_version}" : "echo 'Flux installation skipped'",
+      # Bootstrap Flux with GitHub repository if configured
+      var.enable_flux && var.flux_github_repository != "" ? "flux bootstrap github --owner=${split("/", var.flux_github_repository)[0]} --repository=${split("/", var.flux_github_repository)[1]} --branch=${var.flux_github_branch} --path=${var.flux_github_path} --token-auth" : "echo 'Flux GitHub bootstrap skipped'",
+      # Install MetalLB if enabled
+      var.enable_metallb ? "kubectl apply -f https://raw.githubusercontent.com/metallb/metallb/v0.13.12/config/manifests/metallb-native.yaml" : "echo 'MetalLB installation skipped'",
+      # Install NGINX Ingress Controller if enabled
+      var.enable_ingress_nginx ? "kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/controller-v${var.ingress_nginx_version}/deploy/static/provider/cloud/deploy.yaml" : "echo 'NGINX Ingress installation skipped'"
+    ]
+  }
+
+  # Extract kubeconfig for local use
+  provisioner "local-exec" {
+    command = <<-EOT
+      echo "Waiting for master node to be ready..."
+      sleep 30
+      echo "Extracting kubeconfig..."
+      
+      # Get the master node IP from Terraform data source
+      MASTER_IP="${data.external.master_ips[0].result.ip}"
+      echo "Master node IP: $MASTER_IP"
+      
+      if [ "$MASTER_IP" = "unknown" ]; then
+        echo "Warning: Could not determine master node IP. You may need to manually configure kubeconfig."
+        exit 0
+      fi
+      
+      # Create kubeconfig directory
+      mkdir -p ./kubeconfig
+      
+      # Copy kubeconfig from master node
+      scp -o StrictHostKeyChecking=no -i ${var.ssh_private_key_path} ${var.vm_username}@$MASTER_IP:~/.kube/config ./kubeconfig/kubeconfig-${var.cluster_name}
+      
+      # Update kubeconfig with correct server IP
+      sed -i "s/127.0.0.1:6443/$MASTER_IP:6443/g" ./kubeconfig/kubeconfig-${var.cluster_name}
+      
+      echo "Kubeconfig saved to ./kubeconfig/kubeconfig-${var.cluster_name}"
+      echo "To use this kubeconfig:"
+      echo "export KUBECONFIG=./kubeconfig/kubeconfig-${var.cluster_name}"
+      echo "kubectl get nodes"
+    EOT
+    working_dir = path.module
+  }
+}
+
+# Configure MetalLB and KubeVIP after cluster is ready
+resource "null_resource" "configure_load_balancers" {
+  count = var.enable_metallb || var.enable_kubevip ? 1 : 0
+  depends_on = [null_resource.kubeadm_init]
+
+  connection {
+    type        = "ssh"
+    host        = data.external.master_ips[0].result.ip
+    user        = var.vm_username
+    private_key = file("~/.ssh/id_rsa")
+    timeout     = "5m"
+  }
+
+  provisioner "remote-exec" {
+    inline = [
+      # Wait for MetalLB to be ready
+      var.enable_metallb ? "kubectl wait --namespace metallb-system --for=condition=ready pod --selector=app=metallb --timeout=90s" : "echo 'MetalLB not enabled'",
+      # Configure MetalLB IP pool
+      var.enable_metallb && var.metallb_ip_range != "" ? <<-EOT
+        cat <<EOF | kubectl apply -f -
+        apiVersion: metallb.io/v1beta1
+        kind: IPAddressPool
+        metadata:
+          name: first-pool
+          namespace: metallb-system
+        spec:
+          addresses:
+          - ${var.metallb_ip_range}
+        ---
+        apiVersion: metallb.io/v1beta1
+        kind: L2Advertisement
+        metadata:
+          name: example
+          namespace: metallb-system
+        spec:
+          ipAddressPools:
+          - first-pool
+        EOF
+      EOT : "echo 'MetalLB IP pool configuration skipped'",
+      # Configure KubeVIP for API server
+      var.enable_kubevip && var.api_server_vip != "" ? <<-EOT
+        cat <<EOF | kubectl apply -f -
+        apiVersion: v1
+        kind: Service
+        metadata:
+          name: kubevip
+          namespace: kube-system
+        spec:
+          type: LoadBalancer
+          loadBalancerIP: ${var.api_server_vip}
+          ports:
+          - port: 6443
+            targetPort: 6443
+            protocol: TCP
+            name: https
+          selector:
+            app: kubevip
+        EOF
+      EOT : "echo 'KubeVIP configuration skipped'"
     ]
   }
 }

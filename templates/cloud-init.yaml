@@ -74,6 +74,20 @@ runcmd:
   - mkdir -p /etc/kubernetes
   - mkdir -p /var/lib/kubernetes
   - mkdir -p /var/log/kubernetes
+  
+  # Install Flux CLI (if enabled)
+  - |
+    if [ "${enable_flux}" = "true" ]; then
+      curl -s https://fluxcd.io/install.sh | sudo bash
+    fi
+  
+  # Install KubeVIP (if enabled)
+  - |
+    if [ "${enable_kubevip}" = "true" ]; then
+      wget -O /tmp/kubevip https://github.com/kube-vip/kube-vip/releases/download/v${kubevip_version}/kube-vip-linux-amd64
+      chmod +x /tmp/kubevip
+      sudo mv /tmp/kubevip /usr/local/bin/kubevip
+    fi
 
 write_files:
   - path: /etc/kubernetes/kubelet-config.yaml
