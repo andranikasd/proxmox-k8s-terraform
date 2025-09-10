@@ -1,11 +1,11 @@
 # Proxmox Kubernetes Terraform Module
 
-Terraform module that deploys a Kubernetes cluster on Proxmox using Chef for configuration management.
+Terraform module that deploys a Kubernetes cluster on Proxmox using cloud-init and remote-exec provisioners for configuration management.
 
 ## Features
 
 - **Proxmox Integration**: Creates VMs on Proxmox with configurable resources
-- **Chef Configuration**: Uses Chef cookbooks for automated Kubernetes setup
+- **Cloud-init Configuration**: Uses cloud-init for automated VM setup and Kubernetes installation
 - **Flexible Architecture**: Supports both single and multi-master configurations
 - **Container Runtime Options**: Supports both containerd and Docker
 - **Network Configuration**: Configurable pod and service CIDR ranges
@@ -30,8 +30,68 @@ This module creates:
 ### Proxmox Setup
 1. Proxmox server with API access
 2. API token with appropriate permissions
-3. VM template (Ubuntu 20.04+ recommended)
+3. **Ubuntu 22.04 Cloud Template** (see manual creation guide below)
 4. Network bridge configured
+
+### Manual Template Creation
+
+Before using this module, you need to create an Ubuntu 22.04 cloud template on your Proxmox server. Follow these steps:
+
+#### Step 1: Access Proxmox CLI
+SSH into your Proxmox server or use the web interface shell.
+
+#### Step 2: Download Ubuntu 22.04 Cloud Image
+```bash
+# Download the latest Ubuntu 22.04 LTS cloud image
+wget https://cloud-images.ubuntu.com/jammy/current/jammy-server-cloudimg-amd64.img
+```
+
+#### Step 3: Install Required Tools
+```bash
+# Update package list and install libguestfs-tools
+apt update -y
+apt install libguestfs-tools -y
+```
+
+#### Step 4: Inject QEMU Guest Agent
+```bash
+# Inject the qemu-guest-agent into the image
+virt-customize -a jammy-server-cloudimg-amd64.img --install qemu-guest-agent
+```
+
+#### Step 5: Create VM Template
+```bash
+# Get next available VMID (or use a specific one like 9000)
+VMID=$(pvesh get /cluster/nextid)
+
+# Create VM with basic configuration
+qm create $VMID --name "ubuntu-22.04-cloud" --memory 1024 --cores 1 --net0 virtio,bridge=vmbr0
+
+# Import the cloud image as a qcow2 disk
+qm importdisk $VMID jammy-server-cloudimg-amd64.img local-lvm --format qcow2
+
+# Attach the disk to the VM
+qm set $VMID --scsihw virtio-scsi-pci --scsi0 local-lvm:$VMID/vm-$VMID-disk-0.qcow2
+
+# Configure VM settings
+qm set $VMID --boot c --bootdisk scsi0
+qm set $VMID --ide2 local-lvm:cloudinit
+qm set $VMID --serial0 socket --vga serial0
+qm set $VMID --agent enabled=1
+
+# Convert VM to template
+qm template $VMID
+
+echo "Template created successfully with VMID: $VMID"
+```
+
+#### Step 6: Verify Template Creation
+```bash
+# List all templates to verify creation
+qm list | grep template
+```
+
+The template should now be available as `ubuntu-22.04-cloud` and ready for use with this Terraform module.
 
 ### Flux GitOps Setup (Optional)
 1. GitHub repository for GitOps configuration
@@ -162,11 +222,11 @@ module "kubernetes_cluster" {
   proxmox_template         = "ubuntu-22.04-cloud"
   proxmox_bridge           = "vmbr0"
 
-  # Chef Configuration
-  chef_server_url  = "https://your-chef-server/organizations/your-org"
-  chef_client_name = "terraform-client"
-  chef_private_key = file("~/.chef/terraform-client.pem")
-  chef_environment = "production"
+  # VM Access Configuration
+  ssh_private_key_path = "~/.ssh/id_rsa"
+  ssh_public_key       = file("~/.ssh/id_rsa.pub")
+  vm_username          = "ubuntu"
+  vm_password          = "SecurePassword123!"
 
   # Kubernetes Configuration
   cluster_name         = "production-k8s"

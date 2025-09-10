@@ -14,8 +14,8 @@ output "master_nodes" {
   description = "Information about master nodes"
   value = {
     count = var.master_count
-    names = [for i in range(var.master_count) : proxmox_virtual_environment_vm.master_nodes[i].name]
-    vm_ids = [for i in range(var.master_count) : proxmox_virtual_environment_vm.master_nodes[i].vm_id]
+    names = [for i in range(var.master_count) : proxmox_vm_qemu.master_nodes[i].name]
+    vm_ids = [for i in range(var.master_count) : proxmox_vm_qemu.master_nodes[i].vmid]
   }
 }
 
@@ -24,8 +24,8 @@ output "worker_nodes" {
   description = "Information about worker nodes"
   value = {
     count = var.worker_count
-    names = [for i in range(var.worker_count) : proxmox_virtual_environment_vm.worker_nodes[i].name]
-    vm_ids = [for i in range(var.worker_count) : proxmox_virtual_environment_vm.worker_nodes[i].vm_id]
+    names = [for i in range(var.worker_count) : proxmox_vm_qemu.worker_nodes[i].name]
+    vm_ids = [for i in range(var.worker_count) : proxmox_vm_qemu.worker_nodes[i].vmid]
   }
 }
 
@@ -98,8 +98,8 @@ output "connection_info" {
   description = "Information for connecting to the cluster"
   value = {
     ssh_username = var.vm_username
-    master_nodes = [for i in range(var.master_count) : proxmox_virtual_environment_vm.master_nodes[i].name]
-    worker_nodes = [for i in range(var.worker_count) : proxmox_virtual_environment_vm.worker_nodes[i].name]
+    master_nodes = [for i in range(var.master_count) : proxmox_vm_qemu.master_nodes[i].name]
+    worker_nodes = [for i in range(var.worker_count) : proxmox_vm_qemu.worker_nodes[i].name]
   }
   sensitive = true
 }

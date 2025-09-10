@@ -107,6 +107,12 @@ variable "metallb_ip_range" {
   default     = ""
 }
 
+variable "metallb_version" {
+  description = "MetalLB version to install"
+  type        = string
+  default     = "0.13.12"
+}
+
 variable "enable_kubevip" {
   description = "Enable KubeVIP for API server load balancing"
   type        = bool
@@ -149,6 +155,18 @@ variable "cluster_name" {
   type        = string
 }
 
+variable "pod_network_cidr" {
+  description = "CIDR block for pod network"
+  type        = string
+  default     = "10.244.0.0/16"
+}
+
+variable "cluster_dns" {
+  description = "Cluster DNS IP address"
+  type        = string
+  default     = "10.96.0.10"
+}
+
 variable "kubernetes_version" {
   description = "Kubernetes version to install"
   type        = string
@@ -175,12 +193,6 @@ variable "service_cidr" {
   description = "CIDR block for service networks"
   type        = string
   default     = "10.96.0.0/12"
-}
-
-variable "cluster_dns" {
-  description = "Cluster DNS IP address"
-  type        = string
-  default     = "10.96.0.10"
 }
 
 variable "load_balancer_ip" {
